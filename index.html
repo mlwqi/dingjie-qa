@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="paper">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="《定解宝灯论》七难题框架问答：本地检索、简要回答、标明出处。"
+    />
+    <title>《定解宝灯论》问答</title>
+    <script>
+      (function () {
+        var t = null;
+        try {
+          t = localStorage.getItem('dj-theme');
+        } catch (e) {}
+        var p = new URLSearchParams(location.search).get('theme');
+        if (p === 'paper' || p === 'sepia' || p === 'night') t = p;
+        if (!t) {
+          try {
+            t = matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'paper';
+          } catch (e) {
+            t = 'paper';
+          }
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="brand">
+        <span class="seal" aria-hidden="true">定解</span>
+        <div class="brand-text">
+          <h1>《定解宝灯论》问答</h1>
+          <p class="tagline">七难题框架 · 简要回答 · 标明出处</p>
+        </div>
+      </div>
+      <div class="theme-switch" role="group" aria-label="阅读主题">
+        <button type="button" data-theme-set="paper">纸白</button>
+        <button type="button" data-theme-set="sepia">护眼</button>
+        <button type="button" data-theme-set="night">夜读</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <form id="ask-form" class="ask" role="search">
+          <label class="sr-only" for="q">输入你的问题</label>
+          <input
+            id="q"
+            name="q"
+            type="search"
+            placeholder="例如：无遮还是非遮？净见量是什么？五蕴如何对应五方佛？"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="submit">提问</button>
+        </form>
+        <div class="chips" id="chips" aria-label="示例问题"></div>
+      </section>
+
+      <section id="answer" class="answer" aria-live="polite"></section>
+
+      <section class="seven" aria-labelledby="seven-title">
+        <div class="section-head">
+          <h2 id="seven-title">七难题</h2>
+          <p>本论的骨架：见、果、修、基、总摄</p>
+        </div>
+        <div class="seven-grid" id="seven-grid"></div>
+      </section>
+
+      <section class="scope" aria-labelledby="scope-title">
+        <div class="section-head">
+          <h2 id="scope-title">使用说明</h2>
+        </div>
+        <p>
+          本站把《定解宝灯论》的七难题框架、章节要点与术语表做成离线知识库：先在本地检索，再抽取要点合成简要回答。它不会生成资料之外的内容；检索不到时会直接说明。
+        </p>
+        <p class="warn">
+          内容仅供学习参考，非法师开示，不能替代闻思原文与依止善知识。
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>内容来源：dingjie-baodeng-lun 知识库 · 静态检索，无需联网模型</p>
+      <p class="muted">颂词：全知麦彭仁波切 · 译颂：索达吉堪布 · 释：益西彭措堪布</p>
+    </footer>
+
+    <dialog id="source-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-head">
+        <h3 id="dialog-title">原文</h3>
+        <button type="button" id="dialog-close" class="link-btn">关闭</button>
+      </div>
+      <pre id="dialog-body"></pre>
+    </dialog>
+
+    <script src="./data/kb.js"></script>
+    <script src="./search-core.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

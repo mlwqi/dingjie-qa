@@ -1,0 +1,11 @@
+{
+  "name": "dingjie-baodeng-lun-qa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "《定解宝灯论》七难题框架的纯静态检索问答站",
+  "scripts": {
+    "build": "node scripts/build-kb.mjs",
+    "test": "node scripts/check.mjs",
+    "serve": "python -m http.server 8765"
+  }
+}
