@@ -32,8 +32,6 @@ jobs:
           cp index.html style.css app.js search-core.js _site/
           cp data/kb.js _site/data/
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
