@@ -9,13 +9,29 @@
     />
     <title>《定解宝灯论》问答</title>
     <script>
+      window.__applyTheme = function (name) {
+        if (name !== 'paper' && name !== 'sepia' && name !== 'night') return;
+        document.documentElement.dataset.theme = name;
+        var btns = document.querySelectorAll('[data-theme-set]');
+        for (var i = 0; i < btns.length; i++) {
+          btns[i].setAttribute(
+            'aria-pressed',
+            String(btns[i].getAttribute('data-theme-set') === name)
+          );
+        }
+        try {
+          localStorage.setItem('dj-theme', name);
+        } catch (e) {}
+      };
       (function () {
         var t = null;
         try {
           t = localStorage.getItem('dj-theme');
         } catch (e) {}
-        var p = new URLSearchParams(location.search).get('theme');
-        if (p === 'paper' || p === 'sepia' || p === 'night') t = p;
+        try {
+          var p = new URLSearchParams(location.search).get('theme');
+          if (p === 'paper' || p === 'sepia' || p === 'night') t = p;
+        } catch (e) {}
         if (!t) {
           try {
             t = matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'paper';
@@ -23,7 +39,7 @@
             t = 'paper';
           }
         }
-        document.documentElement.dataset.theme = t;
+        window.__applyTheme(t);
       })();
     </script>
     <link rel="stylesheet" href="./style.css" />
@@ -38,9 +54,9 @@
         </div>
       </div>
       <div class="theme-switch" role="group" aria-label="阅读主题">
-        <button type="button" data-theme-set="paper">纸白</button>
-        <button type="button" data-theme-set="sepia">护眼</button>
-        <button type="button" data-theme-set="night">夜读</button>
+        <button type="button" data-theme-set="paper" onclick="window.__applyTheme('paper')">纸白</button>
+        <button type="button" data-theme-set="sepia" onclick="window.__applyTheme('sepia')">护眼</button>
+        <button type="button" data-theme-set="night" onclick="window.__applyTheme('night')">夜读</button>
       </div>
     </header>
 
@@ -94,7 +110,6 @@
     <footer class="site-footer">
       <p>内容来源：dingjie-baodeng-lun 知识库 · 索达吉堪布《定解宝灯论讲解》（2003）· 静态检索，无需联网模型</p>
       <p class="muted">颂词：全知麦彭仁波切 · 译颂：索达吉堪布 · 释：益西彭措堪布</p>
-      <button type="button" class="link-btn" id="export-feedback">导出“答非所问”记录</button>
     </footer>
 
     <dialog id="source-dialog" aria-labelledby="dialog-title">

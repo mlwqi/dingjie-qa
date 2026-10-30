@@ -33,36 +33,25 @@
     '本尊即是了义法身',
   ];
 
-  const TYPE_LABEL = {
-    faq: '简要回答',
-    term: '术语解释',
-    unit: '章节要点',
-    commentary: '讲解摘录',
-    verse: '颂词解释',
-    clarify: '需要确认',
-    none: '未覆盖',
-    empty: '',
-  };
-
   /* ---------- theme ---------- */
 
   const themeButtons = [...document.querySelectorAll('[data-theme-set]')];
 
   function setTheme(name) {
-    document.documentElement.dataset.theme = name;
+    if (typeof window.__applyTheme === 'function') {
+      window.__applyTheme(name);
+    } else {
+      document.documentElement.dataset.theme = name;
+      try {
+        localStorage.setItem('dj-theme', name);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     themeButtons.forEach((b) =>
       b.setAttribute('aria-pressed', String(b.dataset.themeSet === name))
     );
-    try {
-      localStorage.setItem('dj-theme', name);
-    } catch (e) {
-      /* ignore */
-    }
   }
-
-  themeButtons.forEach((b) => {
-    b.addEventListener('click', () => setTheme(b.dataset.themeSet));
-  });
 
   setTheme(document.documentElement.dataset.theme || 'paper');
 
@@ -126,37 +115,6 @@
 
   renderVerseBrowser();
 
-  /* ---------- feedback ---------- */
-
-  function saveFeedback(query, type) {
-    try {
-      const key = 'dj-feedback';
-      const arr = JSON.parse(localStorage.getItem(key) || '[]');
-      arr.push({ q: query, type, ts: new Date().toISOString() });
-      localStorage.setItem(key, JSON.stringify(arr.slice(-200)));
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
-  const exportBtn = $('#export-feedback');
-  if (exportBtn) {
-    exportBtn.addEventListener('click', () => {
-      const data = localStorage.getItem('dj-feedback') || '[]';
-      if (data === '[]') {
-        exportBtn.textContent = '暂无记录';
-        setTimeout(() => (exportBtn.textContent = '导出“答非所问”记录'), 1600);
-        return;
-      }
-      const blob = new Blob([data], { type: 'application/json;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'dingjie-feedback.json';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
-  }
-
   /* ---------- search ---------- */
 
   function ask(text) {
@@ -195,13 +153,8 @@
 
     const parts = [];
     parts.push('<div class="answer-card">');
-    parts.push(
-      `<div class="answer-head"><span class="badge">${TYPE_LABEL[a.type] || '回答'}</span><span class="answer-q">${esc(
-        a.query
-      )}</span></div>`
-    );
 
-    if (a.title && a.type !== 'unit') {
+    if (a.title) {
       parts.push(`<p class="answer-title">${esc(a.title)}</p>`);
     }
 
@@ -259,7 +212,6 @@
         parts.push('<button type="button" class="link-btn" data-act="original">查看原文</button>');
       }
       parts.push('<button type="button" class="link-btn" data-act="copy">复制链接</button>');
-      parts.push('<button type="button" class="link-btn" data-act="feedback">答非所问？</button>');
       parts.push('</span>');
       parts.push('</div>');
     }
@@ -305,14 +257,6 @@
         } catch (e) {
           copyBtn.textContent = '复制失败';
         }
-      });
-    }
-
-    const feedbackBtn = answerEl.querySelector('[data-act="feedback"]');
-    if (feedbackBtn) {
-      feedbackBtn.addEventListener('click', () => {
-        saveFeedback(a.query, a.type);
-        feedbackBtn.textContent = '已记录';
       });
     }
 

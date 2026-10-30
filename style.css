@@ -146,6 +146,9 @@ main,
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
 }
 
 .theme-switch button {
@@ -285,31 +288,6 @@ main,
   background: var(--surface);
   box-shadow: var(--shadow);
   padding: 26px 28px 22px;
-}
-
-.answer-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
-.badge {
-  font-family: var(--sans);
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 999px;
-  padding: 3px 10px;
-}
-
-.answer-q {
-  color: var(--muted);
-  font-family: var(--sans);
-  font-size: 0.85rem;
-  word-break: break-word;
 }
 
 .answer-title {

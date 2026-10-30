@@ -356,7 +356,10 @@
   function itemTitle(kind, item) {
     if (kind === 'unit') return `${item.chapterTitle}·${item.section}`;
     if (kind === 'verse') return `${chapterTitleOf(item)}·颂词`;
-    return `${chapterTitleOf(item)}${item.heading ? '·' + item.heading : ''}`;
+    const ch = chapterTitleOf(item);
+    const h = item.heading || '';
+    if (!h || h === ch) return ch;
+    return `${ch}·${h}`;
   }
 
   function itemOriginal(kind, item) {
@@ -426,7 +429,7 @@
       query: '',
       title: `${chapterTitleOf(v)}·颂词`,
       verse: v.text,
-      conclusion: clip(summary, 200),
+      conclusion: String(summary || '').trim(),
       points: [],
       sections,
       source: `${chapterTitleOf(v)}·p${v.page}`,
@@ -440,8 +443,8 @@
       type: 'faq',
       query: '',
       title: f.q,
-      conclusion: clip(f.conclusion, 220),
-      points: (f.points || []).map((p) => clip(p, 130)).slice(0, 3),
+      conclusion: f.conclusion,
+      points: (f.points || []).slice(0, 3),
       sections: deepSections(hits, 2, f.q + ' ' + f.conclusion),
       source: f.source,
       original: `${f.q}\n\n${f.conclusion}${(f.points || []).length ? '\n\n' + f.points.join('\n') : ''}`,
@@ -454,7 +457,7 @@
       type: 'term',
       query: '',
       title: `术语：${term.term}`,
-      conclusion: clip(term.def, 200),
+      conclusion: term.def,
       points: [],
       sections: deepSections(hits, 2, term.term + ' ' + term.def),
       source: term.label || term.refs || '术语表',
@@ -470,8 +473,8 @@
       .sort((a, b) => b.score - a.score);
     const conclusion =
       rankedOwnBullets.length && rankedOwnBullets[0].score >= 2
-        ? clip(rankedOwnBullets[0].text, 190)
-        : clip(primarySentence(unit), 190);
+        ? rankedOwnBullets[0].text
+        : primarySentence(unit);
     const points = rankBullets(hits.slice(0, 2).map((h) => h.item), qTokens, 4)
       .filter((p) => {
         const a = p.replace(/[。；\s]/g, '');
@@ -497,13 +500,13 @@
     const commentaryHits = hits.filter((h) => h.kind === 'commentary');
     const points = commentaryHits
       .slice(1, 4)
-      .map((h) => clip(h.item.text, 150))
+      .map((h) => h.item.text)
       .filter((p) => commonPrefixLength(p, item.text) < 8);
     return {
       type: 'commentary',
       query: '',
       title: itemTitle('commentary', item),
-      conclusion: clip(item.text, 240),
+      conclusion: item.text,
       points,
       sections: deepSections(hits, 3, item.text),
       source: itemSource('commentary', item),
@@ -533,7 +536,7 @@
     return pool
       .filter((x) => x.score >= 2)
       .slice(0, limit)
-      .map((x) => clip(x.text, 120));
+      .map((x) => x.text);
   }
 
   function clarifyAnswer(hits, kb, query) {

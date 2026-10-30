@@ -193,7 +193,8 @@ export function parseLectures(raw) {
     const text = textRecords.map((r) => r.text).join('');
     const sentences = splitSentences(text);
     const grouped = chunkSentences(sentences);
-    for (const g of grouped) {
+    for (const raw of grouped) {
+      const g = raw.replace(/^[”’」』】\s]+/, '');
       if (g.length < 24) continue;
       if (/^[^，。！？]{0,8}[；;][一二三四五六七八九十]+、/.test(g)) continue;
       const first = textRecords[0];
