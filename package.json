@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node scripts/build-kb.mjs",
     "test": "node scripts/check.mjs",
+    "eval": "node scripts/eval.mjs",
     "serve": "python -m http.server 8765"
   }
 }

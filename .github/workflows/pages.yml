@@ -26,6 +26,8 @@ jobs:
         run: node scripts/build-kb.mjs
       - name: Smoke test
         run: node scripts/check.mjs
+      - name: Q&A regression
+        run: node scripts/eval.mjs
       - name: Stage static site
         run: |
           mkdir -p _site/data

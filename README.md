@@ -1,17 +1,18 @@
 # 《定解宝灯论》问答站
 
-把 `dingjie-baodeng-lun` skill 转成一个纯静态问答网站：用户提问，页面在本地知识库中检索，给出简要回答、要点与出处。无需后端、无需 API Key，可直接托管在 GitHub Pages。
+把 `dingjie-baodeng-lun` skill 和索达吉堪布《定解宝灯论讲解》（2003）转成一个纯静态问答网站：用户提问，页面在本地知识库中检索，给出简要回答、颂词原文、展开讲解与出处。无需后端、无需 API Key，可直接托管在 GitHub Pages。
 
 ## 回答方式
 
-按优先级三级合成，不生成资料之外的内容：
+按优先级合成，不生成资料之外的内容：
 
-1. **精选问答 / 七难题 / 关键区分**：命中意图时返回整理好的简要答案与争议焦点。
-2. **术语条目**：命中术语表时返回定义、相关章节与原文。
-3. **章节检索**：用中文分词 + BM25 检索章节要点，抽取「核心要点」和匹配的条目合成回答。
-4. **未覆盖**：检索分数不足时直接说明，不编造。
+1. **颂词卡**：用户引用颂词片段时，返回颂词原文、逐句讲解、展开详解与页码。
+2. **精选问答 / 七难题 / 关键区分**：命中意图时返回整理好的简要答案、争议焦点，并附相关讲解段落。
+3. **术语条目**：命中术语表时返回定义、相关章节与原文。
+4. **讲解检索**：用中文分词 + BM25 检索 1,700 余段讲解与章节要点，抽取要点合成回答。
+5. **低置信度**：不再硬答，列出可能相关的章节；完全无关时明确说未覆盖。
 
-页面提供三套主题（纸白 / 护眼 / 夜读），答案可一键查看原文、复制带问题的链接。
+页面提供三套主题（纸白 / 护眼 / 夜读）、颂词索引、展开详解、查看原文、复制带问题的链接，以及“答非所问”本地反馈记录。
 
 ## 目录
 
@@ -23,9 +24,13 @@
 ├─ search-core.js             分词、BM25、回答合成（浏览器/Node 通用）
 ├─ data/kb.js                 构建产物（知识库）
 ├─ content/                   从 skill 同步的 Markdown
+│  └─ lectures/               索达吉堪布 2003 讲解原文
 ├─ scripts/
-│  ├─ build-kb.mjs            解析 Markdown -> data/kb.js
+│  ├─ build-kb.mjs            解析 Markdown + 讲解 -> data/kb.js
+│  ├─ lib/parse-lectures.mjs  切章、识别颂词、重组讲解段
 │  ├─ check.mjs               检索冒烟测试
+│  ├─ eval.mjs                37 题问答回归
+│  ├─ inspect-lectures.mjs    颂词/讲解抽检
 │  └─ sync-content.sh         从 skill 目录同步内容并重建
 ├─ .github/workflows/pages.yml
 └─ package.json
@@ -38,6 +43,7 @@
 ```bash
 npm run build
 npm run test
+npm run eval
 npm run serve
 # 打开 http://localhost:8765
 ```
@@ -54,7 +60,7 @@ bash scripts/sync-content.sh
 bash scripts/sync-content.sh /path/to/dingjie-baodeng-lun
 ```
 
-脚本会复制 Markdown 到 `content/` 并重新生成 `data/kb.js`。
+脚本会复制 Markdown 到 `content/` 并重新生成 `data/kb.js`。讲解原文更新时，替换 `content/lectures/suodaji-2003.txt` 后重新 `npm run build` 即可；可用 `node scripts/inspect-lectures.mjs` 抽检颂词识别结果。
 
 ## 部署到 GitHub Pages
 
@@ -100,5 +106,6 @@ git push
 ## 已知限制
 
 - 静态检索只能“抽取 + 重组”已有内容，不会推理生成新表述。
+- 颂词由排版文本自动识别，个别地方会把讲解句误判为颂词，或漏掉分行不规则的半句；讲解检索不受影响。
 - 中文分词使用浏览器 `Intl.Segmenter`，旧浏览器回退为二元组，召回略降。
-- 知识库约 100 KB，首次加载后完全离线可用。
+- 知识库约 1.05 MB（GitHub Pages 会 gzip），首次加载后完全离线可用。

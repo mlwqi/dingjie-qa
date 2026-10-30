@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseLectures } from './lib/parse-lectures.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -294,6 +295,44 @@ const seeds = [
     source: '第一问·无遮非遮与自空他空',
   },
   {
+    q: '什么是中观？',
+    keys: ['中观', '应成派', '自续派', '离戏', '无自性', '龙树', '月称'],
+    conclusion:
+      '中观是龙树、月称所传，抉择诸法无自性、离四边戏论的见解。本论以现空双运、离戏为究竟；应成派不立自宗、随应而破，自续派则安立名言自相。',
+    points: [
+      '本论判究竟见既非无遮亦非非遮，而是离一切破立。',
+      '大圆满本来清净与中观应成派在离戏方面无有差别。',
+    ],
+    source: '第一问·无遮非遮；第三问·月称论师',
+  },
+  {
+    q: '什么是唯识？',
+    keys: ['唯识', '所取空', '能取', '心识', '外境'],
+    conclusion:
+      '唯识破外境、立心识，证所取空；本论判其能取心识未空，故非究竟，但其所取空仍是法无我的一部分。',
+    points: ['见一法空性不等于见一切法空性，这是本论判唯识不究竟的关键。'],
+    source: '第二问·声缘证二无我；第五问·九乘判分',
+  },
+  {
+    q: '什么是无明？',
+    keys: ['无明', '所断', '轮回根本', '实相'],
+    conclusion:
+      '无明是对诸法实相不了知而增益实有，是轮回的根本；本论说究竟一量的唯一所断即是无明。',
+    points: ['佛与众生只是觉悟与不觉悟的差别，所断唯是无明。'],
+    source: '第六问·究竟一量',
+  },
+  {
+    q: '什么是大清净？',
+    keys: ['大清净', '净见量', '清净刹土', '本尊', '大幻化网', '器情'],
+    conclusion:
+      '大清净是宁玛巴不共特法：以净见量抉择器情世间本来清净，显现为圣尊与刹土。它不是把不清净硬观为清净，而是诸法本性的光明分。',
+    points: [
+      '净见量见“器情现尊”，是依教理抉择的定解见，不是凭空观想。',
+      '若承许轮回本不净而硬观为净，即“呕瓶涂香水”“洗黑炭无转白”。',
+    ],
+    source: '第六问·净见量；《大幻化网续》',
+  },
+  {
     q: '空性是什么意思？',
     keys: ['空性', '现空双运', '离戏', '无自性', '单空', '缘起'],
     conclusion:
@@ -434,6 +473,25 @@ const aliases = {
   一水四见: ['现基', '共同所见', '观现世量'],
 };
 
+// ---------- lectures (索达吉堪布 2003 讲解) ----------
+let verses = [];
+let commentary = [];
+const lecturePath = join(CONTENT, 'lectures/suodaji-2003.txt');
+if (existsSync(lecturePath)) {
+  const parsed = parseLectures(readFileSync(lecturePath, 'utf8'));
+  const titleMap = Object.fromEntries(parsed.chapters.map((c) => [c.id, c.title]));
+  verses = parsed.verses.map((v) => ({
+    ...v,
+    chapterTitle: titleMap[v.chapterId] || v.chapterId,
+    commentary: v.commentary || [],
+    summary: v.summary || '',
+  }));
+  commentary = parsed.chunks.map((c) => ({
+    ...c,
+    chapterTitle: titleMap[c.chapterId] || c.chapterId,
+  }));
+}
+
 const kb = {
   meta: {
     title: '《定解宝灯论》问答',
@@ -451,6 +509,8 @@ const kb = {
   sevenQuestions,
   distinctions,
   topicIndex,
+  verses,
+  commentary,
 };
 
 mkdirSync(DATA, { recursive: true });
@@ -461,5 +521,5 @@ writeFileSync(join(DATA, 'kb.js'), js, 'utf8');
 writeFileSync(join(DATA, 'kb.json'), payload, 'utf8');
 
 console.log(
-  `[build-kb] chapters=${chapters.length} units=${units.length} glossary=${glossary.length} faq=${faq.length} -> data/kb.js (${(js.length / 1024).toFixed(1)} KB)`
+  `[build-kb] chapters=${chapters.length} units=${units.length} glossary=${glossary.length} faq=${faq.length} verses=${verses.length} commentary=${commentary.length} -> data/kb.js (${(js.length / 1024).toFixed(1)} KB)`
 );

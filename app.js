@@ -37,6 +37,9 @@
     faq: '简要回答',
     term: '术语解释',
     unit: '章节要点',
+    commentary: '讲解摘录',
+    verse: '颂词解释',
+    clarify: '需要确认',
     none: '未覆盖',
     empty: '',
   };
@@ -89,6 +92,71 @@
     sevenGrid.appendChild(b);
   });
 
+  function renderVerseBrowser() {
+    const host = $('#verse-browser');
+    if (!host || !KB.verses || !KB.verses.length) return;
+    const groups = new Map();
+    for (const v of KB.verses) {
+      if (!groups.has(v.chapterId)) {
+        groups.set(v.chapterId, { title: v.chapterTitle || v.chapterId, items: [] });
+      }
+      groups.get(v.chapterId).items.push(v);
+    }
+    groups.forEach((g) => {
+      const details = document.createElement('details');
+      details.className = 'verse-group';
+      const summary = document.createElement('summary');
+      summary.textContent = `${g.title}（${g.items.length}）`;
+      details.appendChild(summary);
+      const list = document.createElement('div');
+      list.className = 'verse-list';
+      g.items.forEach((v) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'verse-item';
+        b.textContent = v.text.split('\n')[0];
+        b.title = v.text.replace(/\n/g, ' / ');
+        b.addEventListener('click', () => ask(v.text.split('\n')[0]));
+        list.appendChild(b);
+      });
+      details.appendChild(list);
+      host.appendChild(details);
+    });
+  }
+
+  renderVerseBrowser();
+
+  /* ---------- feedback ---------- */
+
+  function saveFeedback(query, type) {
+    try {
+      const key = 'dj-feedback';
+      const arr = JSON.parse(localStorage.getItem(key) || '[]');
+      arr.push({ q: query, type, ts: new Date().toISOString() });
+      localStorage.setItem(key, JSON.stringify(arr.slice(-200)));
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  const exportBtn = $('#export-feedback');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      const data = localStorage.getItem('dj-feedback') || '[]';
+      if (data === '[]') {
+        exportBtn.textContent = '暂无记录';
+        setTimeout(() => (exportBtn.textContent = '导出“答非所问”记录'), 1600);
+        return;
+      }
+      const blob = new Blob([data], { type: 'application/json;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'dingjie-feedback.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+  }
+
   /* ---------- search ---------- */
 
   function ask(text) {
@@ -137,6 +205,12 @@
       parts.push(`<p class="answer-title">${esc(a.title)}</p>`);
     }
 
+    if (a.verse) {
+      parts.push(
+        `<blockquote class="verse">${esc(a.verse).replace(/\n/g, '<br>')}</blockquote>`
+      );
+    }
+
     parts.push(`<p class="conclusion">${esc(a.conclusion)}</p>`);
 
     if (a.points && a.points.length) {
@@ -145,6 +219,32 @@
           a.points.map((p) => `<li>${esc(p)}</li>`).join('') +
           '</ul>'
       );
+    }
+
+    if (a.sections && a.sections.length) {
+      parts.push(
+        `<details class="deep"><summary>展开详解（${a.sections.length} 段）</summary>`
+      );
+      a.sections.forEach((s) => {
+        parts.push('<div class="deep-sec">');
+        if (s.heading) parts.push(`<h4>${esc(s.heading)}</h4>`);
+        parts.push(`<p>${esc(s.text)}</p>`);
+        if (s.source) parts.push(`<small>${esc(s.source)}</small>`);
+        parts.push('</div>');
+      });
+      parts.push('</details>');
+    }
+
+    if (a.type === 'clarify' && a.candidates && a.candidates.length) {
+      parts.push('<div class="candidates">');
+      a.candidates.forEach((c, i) => {
+        parts.push(
+          `<button type="button" class="candidate" data-candidate="${i}"><span>${esc(
+            c.title
+          )}</span><small>${esc(c.source)}</small></button>`
+        );
+      });
+      parts.push('</div>');
     }
 
     if (a.type === 'none') {
@@ -159,6 +259,7 @@
         parts.push('<button type="button" class="link-btn" data-act="original">查看原文</button>');
       }
       parts.push('<button type="button" class="link-btn" data-act="copy">复制链接</button>');
+      parts.push('<button type="button" class="link-btn" data-act="feedback">答非所问？</button>');
       parts.push('</span>');
       parts.push('</div>');
     }
@@ -206,6 +307,27 @@
         }
       });
     }
+
+    const feedbackBtn = answerEl.querySelector('[data-act="feedback"]');
+    if (feedbackBtn) {
+      feedbackBtn.addEventListener('click', () => {
+        saveFeedback(a.query, a.type);
+        feedbackBtn.textContent = '已记录';
+      });
+    }
+
+    answerEl.querySelectorAll('[data-candidate]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const c = a.candidates[Number(btn.dataset.candidate)];
+        if (!c) return;
+        if (c.action === 'ask' && c.query) {
+          input.value = c.query;
+          run(c.query, true);
+        } else {
+          openDialog(c.title, c.original);
+        }
+      });
+    });
 
     answerEl.querySelectorAll('[data-related]').forEach((btn) => {
       btn.addEventListener('click', () => {

@@ -31,6 +31,12 @@
       .trim();
   }
 
+  function normalizePlain(s) {
+    return String(s || '')
+      .toLowerCase()
+      .replace(/[\s\p{P}\p{S}]+/gu, '');
+  }
+
   function tokenize(s) {
     const text = normalize(s);
     const out = new Set();
@@ -77,22 +83,99 @@
     return n;
   }
 
+  function longestCommonSubstring(a, b) {
+    if (!a || !b) return 0;
+    let best = 0;
+    let prev = new Array(b.length + 1).fill(0);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = new Array(b.length + 1).fill(0);
+      for (let j = 1; j <= b.length; j++) {
+        if (a[i - 1] === b[j - 1]) {
+          cur[j] = prev[j - 1] + 1;
+          if (cur[j] > best) best = cur[j];
+        }
+      }
+      prev = cur;
+    }
+    return best;
+  }
+
+  function splitSentences(text) {
+    const out = [];
+    let buf = '';
+    for (const ch of String(text || '')) {
+      buf += ch;
+      if (/[。！？]/.test(ch)) {
+        out.push(buf.trim());
+        buf = '';
+      }
+    }
+    if (buf.trim()) out.push(buf.trim());
+    return out.filter(Boolean);
+  }
+
+  const SUMMARY_KEYWORDS = [
+    '自解', '解脱', '法身', '净见', '清净', '不净', '现空', '大清净', '定解',
+    '金刚', '光明', '如来藏', '空性', '缘起', '二谛', '无遮', '非遮', '执著',
+    '观察', '安住', '本净', '坛城', '刹土', '五蕴', '五佛', '本尊',
+  ];
+
+  function pickSummary(text, tokens, sourceText) {
+    const sents = splitSentences(text);
+    if (!sents.length) return String(text || '');
+    const src = sourceText || '';
+    let bestIdx = 0;
+    let bestScore = -1;
+    sents.forEach((s, i) => {
+      let sc = overlapCount(tokenize(s), tokens);
+      if (/此颂|所谓|意思是|应知|即应|也就是说/.test(s)) sc += 0.4;
+      for (const kw of SUMMARY_KEYWORDS) {
+        if (src.includes(kw) && s.includes(kw)) sc += 1.2;
+      }
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestIdx = i;
+      }
+    });
+    let out = sents[bestIdx] || '';
+    if (out.length < 60 && sents[bestIdx + 1]) out += sents[bestIdx + 1];
+    return out;
+  }
+
+  function commonPrefixLength(a, b) {
+    const n = Math.min(a.length, b.length);
+    let i = 0;
+    while (i < n && a[i] === b[i]) i++;
+    return i;
+  }
+
   function buildIndex(kb) {
-    const docs = kb.units.map((u) => {
-      const weighted = [
-        u.chapterTitle,
-        u.chapterTitle,
-        u.section,
-        u.section,
-        u.terms.join(' '),
-        u.terms.join(' '),
-        u.text,
-      ].join(' ');
-      const tokens = tokenize(weighted);
+    const docs = [];
+
+    const push = (kind, item, text, terms) => {
+      const tokens = tokenize(text);
       const tf = Object.create(null);
       for (const t of tokens) tf[t] = (tf[t] || 0) + 1;
-      return { unit: u, tf, len: tokens.length };
-    });
+      docs.push({ kind, item, tf, len: tokens.length, terms: terms || [] });
+    };
+
+    for (const u of kb.units || []) {
+      push(
+        'unit',
+        u,
+        [u.chapterTitle, u.chapterTitle, u.section, u.section, (u.terms || []).join(' '), (u.terms || []).join(' '), u.text].join(' '),
+        u.terms
+      );
+    }
+
+    for (const c of kb.commentary || []) {
+      push('commentary', c, [c.chapterTitle, c.heading || '', c.text].join(' '));
+    }
+
+    for (const v of kb.verses || []) {
+      const own = (v.commentary || []).map((c) => c.text).join(' ');
+      push('verse', v, [v.chapterTitle, v.text, v.summary || '', own].join(' '));
+    }
 
     const df = new Map();
     for (const d of docs) {
@@ -131,6 +214,7 @@
   function search(query, kb, index, limit) {
     const q = normalize(query);
     if (!q) return [];
+    const qPlain = normalizePlain(query);
     const qTokens = tokenize(q);
     const extra = expandQuery(q, kb);
     const scored = [];
@@ -143,45 +227,40 @@
       for (const t of qTokens) if (doc.tf[t]) matched++;
 
       let termHit = false;
-      const u = doc.unit;
-      for (const term of u.terms) {
-        if (term.length >= 2 && q.includes(term)) {
-          score += 1.6 + Math.min(term.length, 6) * 0.2;
-          termHit = true;
-        }
-      }
-      if (/核心要点|关键概念|关键收获/.test(u.section)) score += 0.35;
-      if (q.includes(u.section.replace(/\s/g, ''))) score += 1.2;
+      const item = doc.item;
 
-      if (score > 0) scored.push({ score, unit: u, matched, termHit });
+      if (doc.kind === 'unit') {
+        for (const term of item.terms || []) {
+          if (term.length >= 2 && q.includes(term)) {
+            score += 1.6 + Math.min(term.length, 6) * 0.2;
+            termHit = true;
+          }
+        }
+        if (/核心要点|关键概念|关键收获/.test(item.section)) score += 0.35;
+        if (q.includes(item.section.replace(/\s/g, ''))) score += 1.2;
+      } else if (doc.kind === 'verse') {
+        const lcs = longestCommonSubstring(qPlain, item.plain || '');
+        if (lcs >= 5) score += lcs * 1.1;
+        if (item.plain && item.plain.includes(qPlain) && qPlain.length >= 4) score += 4;
+      } else if (doc.kind === 'commentary') {
+        if (qPlain.length >= 4 && item.text.includes(qPlain)) score += 2.5;
+        if (item.heading && q.includes(item.heading)) score += 0.8;
+      }
+
+      if (score > 0) scored.push({ score, kind: doc.kind, item, matched, termHit });
     }
 
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit || 5);
+    return scored.slice(0, limit || 6);
   }
+
+  /* ---------- FAQ ---------- */
 
   function anchorVariants(text) {
     const raw = String(text || '').replace(/[？?。！!，,、；;：:]/g, '').trim();
     if (!raw) return [];
     const parts = raw.split(/[（）()、·，,／/]/).map((x) => x.trim()).filter((x) => x.length >= 2);
     return [raw, ...parts];
-  }
-
-  function longestCommonSubstring(a, b) {
-    if (!a || !b) return 0;
-    let best = 0;
-    let prev = new Array(b.length + 1).fill(0);
-    for (let i = 1; i <= a.length; i++) {
-      const cur = new Array(b.length + 1).fill(0);
-      for (let j = 1; j <= b.length; j++) {
-        if (a[i - 1] === b[j - 1]) {
-          cur[j] = prev[j - 1] + 1;
-          if (cur[j] > best) best = cur[j];
-        }
-      }
-      prev = cur;
-    }
-    return best;
   }
 
   function scoreFaq(query, faq) {
@@ -209,9 +288,7 @@
     const fqn = normalize(faq.q);
     if (qn && fqn) {
       const common = longestCommonSubstring(qn, fqn);
-      if (common >= 2) {
-        score += (common / Math.min(qn.length, fqn.length)) * 2.2;
-      }
+      if (common >= 2) score += (common / Math.min(qn.length, fqn.length)) * 2.2;
     }
     return score;
   }
@@ -221,11 +298,7 @@
     for (const f of kb.faq || []) {
       const s = scoreFaq(query, f);
       const p = f.priority || 0;
-      if (
-        !best ||
-        s > best.score + 0.35 ||
-        (s > best.score - 0.35 && p > best.priority)
-      ) {
+      if (!best || s > best.score + 0.35 || (s > best.score - 0.35 && p > best.priority)) {
         best = { faq: f, score: s, priority: p };
       }
     }
@@ -236,7 +309,10 @@
     let best = null;
     for (const g of kb.glossary || []) {
       for (const v of anchorVariants(g.term)) {
-        if (v.length >= 2 && query.includes(v)) {
+        const hit =
+          v.length >= 2 &&
+          (query.includes(v) || (query.length >= 3 && v.startsWith(query)));
+        if (hit) {
           if (!best || v.length > best.len) best = { item: g, len: v.length };
         }
       }
@@ -244,11 +320,202 @@
     return best ? best.item : null;
   }
 
-  function commonPrefixLength(a, b) {
-    const n = Math.min(a.length, b.length);
-    let i = 0;
-    while (i < n && a[i] === b[i]) i++;
-    return i;
+  /* ---------- verse matching ---------- */
+
+  function findVerse(query, kb) {
+    const q = normalizePlain(query);
+    if (q.length < 4) return null;
+    let best = null;
+    for (const v of kb.verses || []) {
+      const p = v.plain || '';
+      if (!p) continue;
+      let lcs = longestCommonSubstring(q, p);
+      if (p.includes(q) && q.length >= 4) lcs = Math.max(lcs, q.length);
+      if (lcs < 5) continue;
+      const ratio = lcs / Math.min(q.length, p.length);
+      if (lcs < 7 && ratio < 0.6) continue;
+      if (lcs < 7 && q.length > 12) continue;
+      const score = lcs * 1.5 + (p.includes(q) ? 4 : 0);
+      if (!best || score > best.score) best = { verse: v, score, lcs };
+    }
+    return best;
+  }
+
+  /* ---------- answer formatting ---------- */
+
+  function chapterTitleOf(item) {
+    return item.chapterTitle || item.title || item.chapterId || '';
+  }
+
+  function itemSource(kind, item) {
+    if (kind === 'unit') return `${item.chapterTitle}·${item.section}`;
+    if (kind === 'verse') return `${chapterTitleOf(item)}·p${item.page}`;
+    return `${chapterTitleOf(item)}${item.page ? `·p${item.page}` : ''}`;
+  }
+
+  function itemTitle(kind, item) {
+    if (kind === 'unit') return `${item.chapterTitle}·${item.section}`;
+    if (kind === 'verse') return `${chapterTitleOf(item)}·颂词`;
+    return `${chapterTitleOf(item)}${item.heading ? '·' + item.heading : ''}`;
+  }
+
+  function itemOriginal(kind, item) {
+    if (kind === 'verse') {
+      return (
+        item.text +
+        (item.commentary && item.commentary.length
+          ? '\n\n' + item.commentary.map((c) => c.text).join('\n\n')
+          : '')
+      );
+    }
+    if (kind === 'commentary') return `${item.heading ? item.heading + '\n\n' : ''}${item.text}`;
+    return item.text;
+  }
+
+  function relatedOf(hits, excludeKey) {
+    const out = [];
+    for (const h of hits) {
+      if (excludeKey && excludeKey === h.kind + ':' + (h.item.id || '')) continue;
+      out.push({ title: itemTitle(h.kind, h.item), source: itemSource(h.kind, h.item), original: itemOriginal(h.kind, h.item) });
+      if (out.length >= 2) break;
+    }
+    return out;
+  }
+
+  function deepSections(hits, limit, focusText) {
+    const focus = new Set(tokenize(focusText || '').filter((t) => t.length >= 2));
+    const scored = hits
+      .filter((h) => h.kind === 'commentary')
+      .map((h) => {
+        if (!focus.size) return { h, f: h.matched || 0 };
+        const ht = new Set(tokenize((h.item.heading || '') + ' ' + h.item.text));
+        let f = 0;
+        for (const t of focus) if (ht.has(t)) f++;
+        return { h, f };
+      })
+      .filter((x) => x.f >= Math.min(2, focus.size))
+      .sort((a, b) => b.f * 4 + b.h.score - (a.f * 4 + a.h.score));
+    return scored.slice(0, limit || 3).map((x) => ({
+      heading: x.h.item.heading || '讲解',
+      text: x.h.item.text,
+      source: itemSource(x.h.kind, x.h.item),
+    }));
+  }
+
+  function verseAnswer(v, hits) {
+    const own = v.commentary || [];
+    const verseTokens = new Set(tokenize(v.text.replace(/\n/g, '')));
+    const ranked = own
+      .map((c) => {
+        const ct = new Set(tokenize((c.heading || '') + ' ' + c.text));
+        let s = overlapCount([...verseTokens], ct);
+        if (/此颂|此处|也就是说|所谓|意思是|即应|应知/.test(c.text)) s += 0.6;
+        return { c, s };
+      })
+      .sort((a, b) => b.s - a.s);
+    const best = ranked.length && ranked[0].s >= 2 ? ranked[0].c : own[0];
+    const ordered = best ? [best, ...own.filter((c) => c !== best)] : own;
+    const summary = best ? pickSummary(best.text, verseTokens, v.text) : v.summary || '';
+    const sections = ordered.slice(0, 4).map((c) => ({
+      heading: c.heading || '讲解',
+      text: c.text,
+      source: chapterTitleOf(v) + (c.page ? ` · p${c.page}` : ''),
+    }));
+    return {
+      type: 'verse',
+      query: '',
+      title: `${chapterTitleOf(v)}·颂词`,
+      verse: v.text,
+      conclusion: clip(summary, 200),
+      points: [],
+      sections,
+      source: `${chapterTitleOf(v)}·p${v.page}`,
+      original: itemOriginal('verse', v),
+      related: relatedOf(hits || [], 'verse:' + v.id),
+    };
+  }
+
+  function faqAnswer(f, hits) {
+    return {
+      type: 'faq',
+      query: '',
+      title: f.q,
+      conclusion: clip(f.conclusion, 220),
+      points: (f.points || []).map((p) => clip(p, 130)).slice(0, 3),
+      sections: deepSections(hits, 2, f.q + ' ' + f.conclusion),
+      source: f.source,
+      original: `${f.q}\n\n${f.conclusion}${(f.points || []).length ? '\n\n' + f.points.join('\n') : ''}`,
+      related: relatedOf(hits),
+    };
+  }
+
+  function termAnswer(term, hits) {
+    return {
+      type: 'term',
+      query: '',
+      title: `术语：${term.term}`,
+      conclusion: clip(term.def, 200),
+      points: [],
+      sections: deepSections(hits, 2, term.term + ' ' + term.def),
+      source: term.label || term.refs || '术语表',
+      original: `${term.term}——${term.def}`,
+      related: relatedOf(hits),
+    };
+  }
+
+  function unitAnswer(hit, hits, qTokens) {
+    const unit = hit.item;
+    const rankedOwnBullets = (unit.bullets || [])
+      .map((b) => ({ text: b, score: overlapCount(tokenize(b), qTokens) }))
+      .sort((a, b) => b.score - a.score);
+    const conclusion =
+      rankedOwnBullets.length && rankedOwnBullets[0].score >= 2
+        ? clip(rankedOwnBullets[0].text, 190)
+        : clip(primarySentence(unit), 190);
+    const points = rankBullets(hits.slice(0, 2).map((h) => h.item), qTokens, 4)
+      .filter((p) => {
+        const a = p.replace(/[。；\s]/g, '');
+        const b = conclusion.replace(/[。；\s]/g, '');
+        return a !== b && commonPrefixLength(a, b) < 5;
+      })
+      .slice(0, 3);
+    return {
+      type: 'unit',
+      query: '',
+      title: `${unit.chapterTitle}·${unit.section}`,
+      conclusion,
+      points,
+      sections: deepSections(hits, 2, unit.chapterTitle + ' ' + unit.section + ' ' + conclusion),
+      source: itemSource('unit', unit),
+      original: unit.text,
+      related: relatedOf(hits, 'unit:' + unit.id),
+    };
+  }
+
+  function commentaryAnswer(hit, hits) {
+    const item = hit.item;
+    const commentaryHits = hits.filter((h) => h.kind === 'commentary');
+    const points = commentaryHits
+      .slice(1, 4)
+      .map((h) => clip(h.item.text, 150))
+      .filter((p) => commonPrefixLength(p, item.text) < 8);
+    return {
+      type: 'commentary',
+      query: '',
+      title: itemTitle('commentary', item),
+      conclusion: clip(item.text, 240),
+      points,
+      sections: deepSections(hits, 3, item.text),
+      source: itemSource('commentary', item),
+      original: itemOriginal('commentary', item),
+      related: relatedOf(hits, 'commentary:' + item.id),
+    };
+  }
+
+  function primarySentence(unit) {
+    const prose = (unit.paragraphs || []).filter((p) => !/^(?:[-*|>#]|\d+[.、])/.test(p));
+    const usable = prose.filter((p) => !(/[：:]$/.test(p) && p.length < 40));
+    return usable[0] || (unit.bullets || [])[0] || prose[0] || (unit.paragraphs || [])[0] || '';
   }
 
   function rankBullets(units, qTokens, limit) {
@@ -269,121 +536,155 @@
       .map((x) => clip(x.text, 120));
   }
 
-  function primarySentence(unit) {
-    const prose = (unit.paragraphs || []).filter((p) => !/^(?:[-*|>#]|\d+[.、])/.test(p));
-    const usable = prose.filter((p) => !(/[：:]$/.test(p) && p.length < 40));
-    return (
-      usable[0] || (unit.bullets || [])[0] || prose[0] || (unit.paragraphs || [])[0] || ''
-    );
-  }
+  function clarifyAnswer(hits, kb, query) {
+    const seen = new Set();
+    const candidates = [];
+    const add = (c) => {
+      if (!c.title || seen.has(c.title) || candidates.length >= 5) return;
+      seen.add(c.title);
+      candidates.push(c);
+    };
 
-  function sourceOf(unit) {
-    return `${unit.chapterTitle}·${unit.section}`;
-  }
+    const faqCandidates = (kb.faq || [])
+      .map((f) => ({ f, s: scoreFaq(query || '', f) }))
+      .filter((x) => x.s >= 1.6)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 3);
 
-  function relatedOf(hits) {
-    return hits.slice(1, 3).map((h) => ({
-      title: h.unit.section,
-      source: sourceOf(h.unit),
-      original: h.unit.text,
-    }));
+    const topHit = hits[0];
+    const hasSignal =
+      (topHit && topHit.matched >= 2 && topHit.score >= 2.0) || faqCandidates.length > 0;
+    if (!hasSignal) {
+      return {
+        type: 'none',
+        query: '',
+        conclusion:
+          '本知识库暂未覆盖这个问题。可以换用论中的术语或颂词片段提问，例如“无遮非遮”“净见量”“诚信不净现自解”。',
+        points: [],
+        sections: [],
+        source: '',
+        original: '',
+        related: [],
+      };
+    }
+    for (const { f } of faqCandidates) {
+      add({
+        title: f.q,
+        source: f.source,
+        query: f.q,
+        action: 'ask',
+        original: `${f.q}\n\n${f.conclusion}`,
+      });
+    }
+
+    if (candidates.length < 3) {
+      for (const q of kb.sevenQuestions || []) {
+        add({
+          title: q.question,
+          source: `总纲·七难题 第${q.n}问`,
+          query: q.question,
+          action: 'ask',
+          original: `${q.question}\n\n${q.answer}`,
+        });
+      }
+    }
+
+    for (const h of hits) {
+      if (h.kind === 'unit') {
+        add({
+          title: `${h.item.chapterTitle}·${h.item.section}`,
+          source: '章节要点',
+          action: 'open',
+          original: itemOriginal(h.kind, h.item),
+        });
+      } else if (h.kind === 'verse') {
+        const line = (h.item.text || '').split('\n')[0];
+        add({
+          title: line,
+          source: `${chapterTitleOf(h.item)}·颂词`,
+          query: line,
+          action: 'ask',
+          original: itemOriginal(h.kind, h.item),
+        });
+      }
+    }
+
+    if (!candidates.length) {
+      return {
+        type: 'none',
+        query: '',
+        conclusion:
+          '本知识库暂未覆盖这个问题。可以换用论中的术语或颂词片段提问，例如“无遮非遮”“净见量”“诚信不净现自解”。',
+        points: [],
+        sections: [],
+        source: '',
+        original: '',
+        related: [],
+      };
+    }
+    return {
+      type: 'clarify',
+      query: '',
+      conclusion: '我不确定你问的是哪一处。你可能是想问：',
+      points: [],
+      sections: [],
+      candidates,
+      source: '',
+      original: '',
+      related: [],
+    };
   }
 
   function answer(query, kb, index) {
     const q = normalize(query);
     if (!q) return { type: 'empty', query };
 
-    const faqHit = bestFaq(q, kb);
-    if (faqHit) {
-      const f = faqHit.faq;
-      const hits = search(q, kb, index, 4);
-      return {
-        type: 'faq',
-        query,
-        title: f.q,
-        conclusion: clip(f.conclusion, 220),
-        points: (f.points || []).map((p) => clip(p, 130)).slice(0, 3),
-        source: f.source,
-        original: `${f.q}\n\n${f.conclusion}${(f.points || []).length ? '\n\n' + f.points.join('\n') : ''}`,
-        related: relatedOf(hits),
-      };
+    const hits = search(q, kb, index, 8);
+    const verseMatch = findVerse(q, kb);
+
+    // 明确引用颂词时，颂词卡优先
+    if (verseMatch && (verseMatch.lcs >= 7 || verseMatch.verse.plain.includes(normalizePlain(q)))) {
+      return { ...verseAnswer(verseMatch.verse, hits), query };
     }
+
+    const faqHit = bestFaq(q, kb);
+    if (faqHit) return { ...faqAnswer(faqHit.faq, hits), query };
 
     const term = bestGlossary(q, kb);
-    const hits = search(q, kb, index, 4);
+    if (term) return { ...termAnswer(term, hits), query };
 
-    if (term) {
-      return {
-        type: 'term',
-        query,
-        title: `术语：${term.term}`,
-        conclusion: clip(term.def, 200),
-        points: rankBullets(hits.map((h) => h.unit), new Set(tokenize(q)), 2),
-        source: term.label || term.refs || '术语表',
-        original: `${term.term}——${term.def}`,
-        related: relatedOf(hits),
-      };
-    }
+    if (verseMatch) return { ...verseAnswer(verseMatch.verse, hits), query };
 
-    const qTokens = new Set(tokenize(q));
-    const topHit = hits[0];
-    const coverage = topHit && qTokens.size ? topHit.matched / qTokens.size : 0;
+    const top = hits[0];
+    const qTokens = tokenize(q);
+    const coverage = top && qTokens.length ? top.matched / qTokens.length : 0;
     const strongEnough =
-      topHit &&
-      (topHit.termHit || topHit.matched >= 2 || coverage >= 0.6 || topHit.score >= 4);
+      top &&
+      top.score >= 1.15 &&
+      (top.termHit ||
+        (qTokens.length <= 1 && top.matched >= 1) ||
+        (qTokens.length >= 2 && coverage >= 0.55 && top.matched >= 2) ||
+        (qTokens.length >= 4 && coverage >= 0.4 && top.matched >= 3));
 
-    if (!hits.length || topHit.score < 1.15 || !strongEnough) {
-      return {
-        type: 'none',
-        query,
-        conclusion:
-          '本知识库暂未覆盖这个问题。可以换用论中的术语提问（如“无遮非遮”“净见量”“现基”“善证无执”），或查阅各章原文。',
-        points: [],
-        source: '',
-        original: '',
-        related: [],
-      };
+    if (top && strongEnough) {
+      if (top.kind === 'commentary') return { ...commentaryAnswer(top, hits), query };
+      if (top.kind === 'verse') return { ...verseAnswer(top.item, hits), query };
+      if (top.kind === 'unit') return { ...unitAnswer(top, hits, new Set(qTokens)), query };
     }
 
-    const unit = topHit.unit;
-    const rankedOwnBullets = (unit.bullets || [])
-      .map((b) => ({ text: b, score: overlapCount(tokenize(b), qTokens) }))
-      .sort((a, b) => b.score - a.score);
-    const conclusion =
-      rankedOwnBullets.length && rankedOwnBullets[0].score >= 2
-        ? clip(rankedOwnBullets[0].text, 190)
-        : clip(primarySentence(unit), 190);
-    const points = rankBullets(
-      hits.slice(0, 2).map((h) => h.unit),
-      qTokens,
-      4
-    )
-      .filter((p) => {
-        const a = p.replace(/[。；\s]/g, '');
-        const b = conclusion.replace(/[。；\s]/g, '');
-        return a !== b && commonPrefixLength(a, b) < 5;
-      })
-      .slice(0, 3);
-
-    return {
-      type: 'unit',
-      query,
-      title: `${unit.chapterTitle}·${unit.section}`,
-      conclusion,
-      points,
-      source: sourceOf(unit),
-      original: unit.text,
-      related: relatedOf(hits),
-    };
+    if (top && top.score >= 2.2 && top.matched >= 2) return { ...clarifyAnswer(hits, kb, q), query };
+    return { ...clarifyAnswer([], kb, q), query };
   }
 
   return {
     tokenize,
     normalize,
+    normalizePlain,
     buildIndex,
     search,
     answer,
     clip,
     scoreFaq,
+    findVerse,
   };
 });
