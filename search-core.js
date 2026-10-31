@@ -120,13 +120,24 @@
     '观察', '安住', '本净', '坛城', '刹土', '五蕴', '五佛', '本尊',
   ];
 
-  function pickSummary(text, tokens, sourceText) {
-    const sents = splitSentences(text);
-    if (!sents.length) return String(text || '');
+  function pickSummary(text, tokens, sourceText, sourcePlain) {
+    const all = splitSentences(text);
+    if (!all.length) return String(text || '');
+    const complete = all.filter((s) => /[。！？][”’"']?$/.test(s.trim()));
+    const sents = complete.length ? complete : all;
+    const plainOf = (s) => s.replace(/[\s\p{P}\p{S}]+/gu, '');
+    const srcPlain = sourcePlain || plainOf(sourceText || '');
+    const pool = sents.filter((s) => {
+      const sp = plainOf(s);
+      if (!sp) return false;
+      if (srcPlain && sp.length >= 8 && srcPlain.includes(sp)) return false;
+      return true;
+    });
+    const pickPool = pool.length ? pool : sents;
     const src = sourceText || '';
     let bestIdx = 0;
     let bestScore = -1;
-    sents.forEach((s, i) => {
+    pickPool.forEach((s, i) => {
       let sc = overlapCount(tokenize(s), tokens);
       if (/此颂|所谓|意思是|应知|即应|也就是说/.test(s)) sc += 0.4;
       for (const kw of SUMMARY_KEYWORDS) {
@@ -137,8 +148,8 @@
         bestIdx = i;
       }
     });
-    let out = sents[bestIdx] || '';
-    if (out.length < 60 && sents[bestIdx + 1]) out += sents[bestIdx + 1];
+    let out = pickPool[bestIdx] || '';
+    if (out.length < 60 && pickPool[bestIdx + 1]) out += pickPool[bestIdx + 1];
     return out;
   }
 
@@ -418,7 +429,7 @@
       .sort((a, b) => b.s - a.s);
     const best = ranked.length && ranked[0].s >= 2 ? ranked[0].c : own[0];
     const ordered = best ? [best, ...own.filter((c) => c !== best)] : own;
-    const summary = best ? pickSummary(best.text, verseTokens, v.text) : v.summary || '';
+    const summary = best ? pickSummary(best.text, verseTokens, v.text, v.plain) : v.summary || '';
     const sections = ordered.slice(0, 4).map((c) => ({
       heading: c.heading || '讲解',
       text: c.text,

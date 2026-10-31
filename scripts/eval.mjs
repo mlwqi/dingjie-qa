@@ -19,7 +19,7 @@ const cases = [
   { q: '奇哉趋入深实相', types: ['verse'], verse: '奇哉趋入深实相', contains: '定解' },
   { q: '现有清净之法身', types: ['verse'], verse: '现有清净之法身', contains: '法身' },
   { q: '若无汝则于此世', types: ['verse'], verse: '若无汝则于此世', contains: '定解' },
-  { q: '能解困心疑网者', types: ['verse'], verse: '能解困心疑网者' },
+  { q: '能解困心疑网者', types: ['verse', 'commentary'], contains: '文殊金刚灯' },
 
   // 七难题
   { q: '无遮还是非遮', types: ['faq'], contains: '俱不承认' },

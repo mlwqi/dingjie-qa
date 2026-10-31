@@ -55,7 +55,14 @@ function isHeading(line) {
   if (/^[（(][一二三四五六七八九十]+[）)]/.test(line)) return true;
   if (/分[二三四五六七八九十]+[：:]/.test(line) && line.length < 130) return true;
   if (/^[一二三四五六七八九十]+、/.test(line) && /[；;][一二三四五六七八九十]+、/.test(line)) return true;
-  if (/[：:]$/.test(line) && line.length <= 60) return true;
+  if (
+    /[：:]$/.test(line) &&
+    line.length <= 24 &&
+    !/[，。！？]/.test(line.replace(/[：:]$/, '')) &&
+    !PROSE_MARKERS.test(line)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -170,7 +177,8 @@ export function parseLectures(raw) {
     if (!verseBuffer.length) return;
     const lines = verseBuffer.map((r) => r.text);
     const score = verseScore(lines);
-    if (score >= 3) {
+    // 根颂以两行（四个半句）为单位出现；单行更可能是讲解句，保守放回正文
+    if (lines.length >= 2 && score >= 3) {
       const first = verseBuffer[0];
       verses.push({
         id: `v${String(verses.length + 1).padStart(4, '0')}`,
@@ -182,6 +190,10 @@ export function parseLectures(raw) {
         score,
         order: verses.length + 1,
       });
+    }
+    // 无论是否识别为颂词，原行都保留在讲解流里，避免句意被切断
+    for (const r of verseBuffer) {
+      textBuffer.push({ ...r, type: 'text', heading: lastHeading });
     }
     verseBuffer = [];
   };
@@ -232,13 +244,25 @@ export function parseLectures(raw) {
       textBuffer = [];
     }
   }
-  flushText(textBuffer);
   flushVerse();
+  flushText(textBuffer);
+
+  // 跨页/跨标题导致的半句 chunk 与后一个 chunk 合并，保证以句号结尾
+  const endsSentence = (s) => /[。！？][”’"']?$/.test(String(s || '').trim());
+  const merged = [];
+  for (const c of chunks) {
+    const prev = merged[merged.length - 1];
+    if (prev && !endsSentence(prev.text)) {
+      prev.text += c.text;
+    } else {
+      merged.push({ ...c });
+    }
+  }
 
   // 给颂词挂接讲解：从该颂词之后、下一颂词之前的 chunk
   for (let i = 0; i < verses.length; i++) {
     const v = verses[i];
-    const own = chunks.filter((c) => c.verseId === v.id).slice(0, 4);
+    const own = merged.filter((c) => c.verseId === v.id).slice(0, 4);
     v.commentary = own;
     v.summary = own[0] ? own[0].text : '';
   }
@@ -246,6 +270,7 @@ export function parseLectures(raw) {
   return {
     chapters: CHAPTERS.map((c) => ({ id: c.id, title: c.title })),
     verses,
-    chunks,
+    chunks: merged,
+    records,
   };
 }
