@@ -114,45 +114,6 @@
     return out.filter(Boolean);
   }
 
-  const SUMMARY_KEYWORDS = [
-    '自解', '解脱', '法身', '净见', '清净', '不净', '现空', '大清净', '定解',
-    '金刚', '光明', '如来藏', '空性', '缘起', '二谛', '无遮', '非遮', '执著',
-    '观察', '安住', '本净', '坛城', '刹土', '五蕴', '五佛', '本尊',
-  ];
-
-  function pickSummary(text, tokens, sourceText, sourcePlain) {
-    const all = splitSentences(text);
-    if (!all.length) return String(text || '');
-    const complete = all.filter((s) => /[。！？][”’"']?$/.test(s.trim()));
-    const sents = complete.length ? complete : all;
-    const plainOf = (s) => s.replace(/[\s\p{P}\p{S}]+/gu, '');
-    const srcPlain = sourcePlain || plainOf(sourceText || '');
-    const pool = sents.filter((s) => {
-      const sp = plainOf(s);
-      if (!sp) return false;
-      if (srcPlain && sp.length >= 8 && srcPlain.includes(sp)) return false;
-      return true;
-    });
-    const pickPool = pool.length ? pool : sents;
-    const src = sourceText || '';
-    let bestIdx = 0;
-    let bestScore = -1;
-    pickPool.forEach((s, i) => {
-      let sc = overlapCount(tokenize(s), tokens);
-      if (/此颂|所谓|意思是|应知|即应|也就是说/.test(s)) sc += 0.4;
-      for (const kw of SUMMARY_KEYWORDS) {
-        if (src.includes(kw) && s.includes(kw)) sc += 1.2;
-      }
-      if (sc > bestScore) {
-        bestScore = sc;
-        bestIdx = i;
-      }
-    });
-    let out = pickPool[bestIdx] || '';
-    if (out.length < 60 && pickPool[bestIdx + 1]) out += pickPool[bestIdx + 1];
-    return out;
-  }
-
   function commonPrefixLength(a, b) {
     const n = Math.min(a.length, b.length);
     let i = 0;
@@ -185,7 +146,7 @@
 
     for (const v of kb.verses || []) {
       const own = (v.commentary || []).map((c) => c.text).join(' ');
-      push('verse', v, [v.chapterTitle, v.text, v.summary || '', own].join(' '));
+      push('verse', v, [v.chapterTitle, v.text, v.summary || '', v.translation || '', own].join(' '));
     }
 
     const df = new Map();
@@ -416,32 +377,150 @@
     }));
   }
 
-  function verseAnswer(v, hits) {
-    const own = v.commentary || [];
-    const verseTokens = new Set(tokenize(v.text.replace(/\n/g, '')));
-    const ranked = own
-      .map((c) => {
-        const ct = new Set(tokenize((c.heading || '') + ' ' + c.text));
-        let s = overlapCount([...verseTokens], ct);
-        if (/此颂|此处|也就是说|所谓|意思是|即应|应知/.test(c.text)) s += 0.6;
-        return { c, s };
+  /* ---------- verse paraphrase ---------- */
+
+  // 去掉讲解开头重复引用的颂词原文
+  function stripVerseQuote(text, verseText) {
+    const target = normalizePlain(verseText);
+    if (!target) return String(text || '');
+    let plain = '';
+    let cut = -1;
+    for (let i = 0; i < text.length; i++) {
+      const ch = normalizePlain(text[i]);
+      if (!ch) continue;
+      plain += ch;
+      if (!target.startsWith(plain)) return String(text || '');
+      if (plain === target) {
+        cut = i + 1;
+        break;
+      }
+    }
+    if (cut < 0) return String(text || '');
+    let rest = text.slice(cut);
+    // 长颂可能跨两首，讲解开头会把剩余颂词一并引出；连同引文整句去掉
+    const lead = rest.match(/^[^。！？]{0,45}[。！？]/);
+    if (lead) {
+      const body = lead[0].slice(0, -1);
+      if (
+        !/我们|你们|因为|所以|如果|这样|那么|已经|可以|需要|应该|非常|所谓|也就是说|什么|怎么|为什么|自己|就是|还是|但是|虽然|然而|而且|并且|的话|一样|这种|那种|其中|对于|关于|通过|进行|表示|说明|意思/.test(
+          body
+        )
+      ) {
+        rest = rest.slice(lead[0].length);
+      }
+    }
+    return rest
+      .replace(/^[\s，。；：、！？“”‘’]+/, '')
+      .trim();
+  }
+
+  function isVerseEcho(sentence, verseText) {
+    const sp = normalizePlain(sentence);
+    const vp = normalizePlain(verseText);
+    if (!sp || !vp) return false;
+    if (sp.includes(vp)) return true;
+    const common = longestCommonSubstring(sp, vp);
+    return common >= Math.min(vp.length * 0.7, 14) && sp.length <= vp.length + 24;
+  }
+
+  // 从讲解各段开头抽取直接解释颂词的句子，拼成一段完整的白话释义。
+  // 讲解通常以“颂词原文 + 逐句解释”开篇；遇到离题展开或过渡问句即停。
+  function verseParaphrase(v, source) {
+    const own = source || v.commentary || [];
+    const halves = String(v.text || '')
+      .split(/[\n，]/)
+      .map((s) => s.trim().replace(/[。！？；]$/, ''))
+      .filter(Boolean);
+    const halfTokens = halves.map((h) => new Set(tokenize(h)));
+    const uncovered = new Set(halves.map((_, i) => i));
+    const picked = [];
+    let total = 0;
+
+    for (let ci = 0; ci < Math.min(own.length, 5) && uncovered.size && total < 420; ci++) {
+      let text = own[ci].text || '';
+      if (ci === 0) text = stripVerseQuote(text, v.text);
+      let scanned = 0;
+      for (const s of splitSentences(text)) {
+        if (!uncovered.size || total >= 420 || scanned >= 6) break;
+        scanned++;
+        if (s.length < 10) continue;
+        if (isVerseEcho(s, v.text)) continue;
+        if (/^(此处|这里|此颂|本颂).{0,10}(拟人|说明|指|表示|宣说|意思)/.test(s) && s.length <= 24) continue;
+        if (/^(前面|上面|下面|接下来|首先).{0,40}(宣讲|讲完|说完|介绍|分析|宣说|道理)/.test(s)) continue;
+        if (/(已经宣讲完毕|已经讲完|已经介绍完|已做过宣讲|也已做过宣讲|这方面的道理也已)/.test(s)) continue;
+        if (/(为什么|为何|何以|怎么样)[^。！？]{0,12}[呢吗]？$/.test(s)) continue;
+        if (s.length <= 20 && /(何为|什么是|如何|为什么|为何)/.test(s) && /[？?]$/.test(s)) continue;
+
+        const st = new Set(tokenize(s));
+        let covered = 0;
+        let weight = 0;
+        const hit = [];
+        for (const i of uncovered) {
+          let w = 0;
+          for (const t of halfTokens[i]) if (st.has(t)) w += Math.min(t.length, 4);
+          if (w > 0) {
+            covered++;
+            weight += w;
+            hit.push(i);
+          }
+        }
+        if (!covered) continue;
+        // 只碰到一个半句、匹配又很弱的，多半是离题展开
+        if (covered === 1 && weight <= 2 && s.length > 80) continue;
+
+        picked.push(s.replace(/^(?:下面说|前面说|接下来|首先)[，,：:]?\s*/, ''));
+        total += s.length;
+        hit.forEach((i) => uncovered.delete(i));
+      }
+    }
+
+    if (!picked.length) {
+      const first = own[0] ? stripVerseQuote(own[0].text, v.text) : '';
+      return clip(first || v.summary || '', 260);
+    }
+    return picked.join('').trim();
+  }
+
+  function verseAnswer(v, hits, kb) {
+    let own = v.commentary || [];
+    // 少数颂词的讲解未被挂接，退回到检索到的、引用该颂的讲解段
+    if (!own.length) {
+      const vp = normalizePlain(v.text).slice(0, 12);
+      own = (hits || [])
+        .filter((h) => h.kind === 'commentary' && vp && normalizePlain(h.item.text).includes(vp))
+        .map((h) => h.item);
+    }
+    let lastHeading = '';
+    const sections = own.slice(0, 4).map((c) => {
+      let heading = (c.heading || '').trim();
+      if (heading === '般若' || heading === '讲解') heading = '';
+      if (heading && heading === lastHeading) heading = '';
+      if (heading) lastHeading = heading;
+      return {
+        heading,
+        text: c.text,
+        source: chapterTitleOf(v) + (c.page ? ` · p${c.page}` : ''),
+      };
+    });
+    // 只解释生僻词；术语表里已有的词不再重复，且每次最多一条
+    const knownTerms = new Set(((kb && kb.glossary) || []).map((g) => g.term));
+    const seenTerms = new Set();
+    const glosses = (v.terms || [])
+      .filter((t) => {
+        if (!t || !t.term || !t.gloss) return false;
+        if (knownTerms.has(t.term) || seenTerms.has(t.term)) return false;
+        seenTerms.add(t.term);
+        return true;
       })
-      .sort((a, b) => b.s - a.s);
-    const best = ranked.length && ranked[0].s >= 2 ? ranked[0].c : own[0];
-    const ordered = best ? [best, ...own.filter((c) => c !== best)] : own;
-    const summary = best ? pickSummary(best.text, verseTokens, v.text, v.plain) : v.summary || '';
-    const sections = ordered.slice(0, 4).map((c) => ({
-      heading: c.heading || '讲解',
-      text: c.text,
-      source: chapterTitleOf(v) + (c.page ? ` · p${c.page}` : ''),
-    }));
+      .slice(0, 1)
+      .map((t) => `${t.term}：${t.gloss}`);
     return {
       type: 'verse',
       query: '',
       title: `${chapterTitleOf(v)}·颂词`,
       verse: v.text,
-      conclusion: String(summary || '').trim(),
-      points: [],
+      conclusion: v.translation || verseParaphrase(v, own),
+      points: glosses,
       sections,
       source: `${chapterTitleOf(v)}·p${v.page}`,
       original: itemOriginal('verse', v),
@@ -658,7 +737,7 @@
 
     // 明确引用颂词时，颂词卡优先
     if (verseMatch && (verseMatch.lcs >= 7 || verseMatch.verse.plain.includes(normalizePlain(q)))) {
-      return { ...verseAnswer(verseMatch.verse, hits), query };
+      return { ...verseAnswer(verseMatch.verse, hits, kb), query };
     }
 
     const faqHit = bestFaq(q, kb);
@@ -667,7 +746,7 @@
     const term = bestGlossary(q, kb);
     if (term) return { ...termAnswer(term, hits), query };
 
-    if (verseMatch) return { ...verseAnswer(verseMatch.verse, hits), query };
+    if (verseMatch) return { ...verseAnswer(verseMatch.verse, hits, kb), query };
 
     const top = hits[0];
     const qTokens = tokenize(q);
@@ -682,7 +761,7 @@
 
     if (top && strongEnough) {
       if (top.kind === 'commentary') return { ...commentaryAnswer(top, hits), query };
-      if (top.kind === 'verse') return { ...verseAnswer(top.item, hits), query };
+      if (top.kind === 'verse') return { ...verseAnswer(top.item, hits, kb), query };
       if (top.kind === 'unit') return { ...unitAnswer(top, hits, new Set(qTokens)), query };
     }
 

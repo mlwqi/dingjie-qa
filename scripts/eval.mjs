@@ -20,6 +20,27 @@ const cases = [
   { q: '现有清净之法身', types: ['verse'], verse: '现有清净之法身', contains: '法身' },
   { q: '若无汝则于此世', types: ['verse'], verse: '若无汝则于此世', contains: '定解' },
   { q: '能解困心疑网者', types: ['verse', 'commentary'], contains: '文殊金刚灯' },
+  // 颂词简答必须是直接释义，不得摘取离题讲解
+  {
+    q: '除此之外如何证，并非究竟之意义，二障尚未断尽前，实相现相不一致。',
+    types: ['verse'],
+    contains: '净见量',
+    includes: ['二障', '实相与现相'],
+    notContains: '于抉择共同所见之此时',
+  },
+  {
+    q: '乃至未生定解前，方便观察引定解，已生定解于彼中，不离定解而修行。',
+    types: ['verse'],
+    includes: ['观察', '安住'],
+  },
+  {
+    q: '一位补特伽罗者，成佛之时他众前，不会不现不净法，自现障碍所遮障。',
+    types: ['verse'],
+    includes: ['补特伽罗', '障碍'],
+    notContains: '既然一切均为清净',
+    maxConclusion: 120,
+    maxPoints: 1,
+  },
 
   // 七难题
   { q: '无遮还是非遮', types: ['faq'], contains: '俱不承认' },
@@ -70,12 +91,16 @@ for (const c of cases) {
     .filter(Boolean)
     .join(' ');
   const textOk = !c.contains || text.includes(c.contains);
+  const includesOk = !c.includes || c.includes.every((s) => text.includes(s));
+  const notOk = !c.notContains || !(a.conclusion || '').includes(c.notContains);
   const verseOk = !c.verse || (a.verse || '').includes(c.verse);
-  const ok = typeOk && textOk && verseOk;
+  const lengthOk = c.maxConclusion == null || (a.conclusion || '').length <= c.maxConclusion;
+  const pointsOk = c.maxPoints == null || (a.points || []).length <= c.maxPoints;
+  const ok = typeOk && textOk && includesOk && notOk && verseOk && lengthOk && pointsOk;
   if (!ok) {
     failed++;
     console.error(
-      `FAIL  ${c.q}\n  type=${a.type} (want ${c.types.join('/')}) textOk=${textOk} verseOk=${verseOk}\n  got: ${a.conclusion}`
+      `FAIL  ${c.q}\n  type=${a.type} (want ${c.types.join('/')}) textOk=${textOk} includesOk=${includesOk} notOk=${notOk} verseOk=${verseOk} lengthOk=${lengthOk} pointsOk=${pointsOk}\n  got: ${a.conclusion}`
     );
   } else {
     console.log(`ok    ${c.q} -> ${a.type}`);

@@ -24,12 +24,14 @@ const cases = [
 ];
 
 let failed = 0;
+let caseFailed = 0;
 for (const [q, type, contains] of cases) {
   const a = SC.answer(q, KB, index);
   const okType = a.type === type;
   const okText = !contains || (a.conclusion || '').includes(contains);
   if (!okType || !okText) {
     failed++;
+    caseFailed++;
     console.error(
       `FAIL  ${q}\n  expected ${type}/${contains}, got ${a.type}/${a.conclusion}`
     );
@@ -45,7 +47,34 @@ if (!withOriginal.original) {
   console.error('FAIL  检索结果缺少原文');
 }
 
+// 每首颂词都要有白话简答，且讲解标题不得混入“般若”页眉
+const untranslated = (KB.verses || []).filter(
+  (v) => !v.translation || v.translation.trim().length < 20
+);
+if (untranslated.length) {
+  failed++;
+  console.error(`FAIL  缺少颂词白话翻译: ${untranslated.map((v) => v.id).join(', ')}`);
+}
+const boreHeading = (KB.commentary || []).filter((c) => (c.heading || '').trim() === '般若');
+if (boreHeading.length) {
+  failed++;
+  console.error(`FAIL  讲解标题混入“般若”: ${boreHeading.length} 段`);
+}
+
+// 颂词简答保持简短，词释最多一条
+const verbose = [];
+for (const v of KB.verses || []) {
+  const a = SC.answer(v.text.replace(/\n/g, ''), KB, index);
+  if ((a.conclusion || '').length > 180 || (a.points || []).length > 1) {
+    verbose.push(`${v.id}(${(a.conclusion || '').length}字/${(a.points || []).length}条)`);
+  }
+}
+if (verbose.length) {
+  failed++;
+  console.error(`FAIL  颂词简答过长或词释过多: ${verbose.slice(0, 10).join(', ')}`);
+}
+
 console.log(
-  `\n[check] ${cases.length - failed}/${cases.length} passed; units=${KB.units.length} faq=${KB.faq.length}`
+  `\n[check] ${cases.length - caseFailed}/${cases.length} passed; units=${KB.units.length} faq=${KB.faq.length} verses=${KB.verses.length}`
 );
 process.exit(failed ? 1 : 0);

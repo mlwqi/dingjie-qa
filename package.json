@@ -7,6 +7,8 @@
     "build": "node scripts/build-kb.mjs",
     "test": "node scripts/check.mjs",
     "eval": "node scripts/eval.mjs",
+    "export-translations": "node scripts/export-translation-batches.mjs",
+    "merge-translations": "node scripts/merge-translations.mjs",
     "serve": "python -m http.server 8765"
   }
 }

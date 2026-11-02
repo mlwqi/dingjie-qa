@@ -23,6 +23,10 @@ const CHAPTERS = [
 const PROSE_MARKERS =
   /我们|你们|大家|因为|所以|如果|这样|那么|已经|可以|需要|应该|不会|非常|特别|尤其|比如|例如|所谓|也就是说|什么|怎么|为什么|他们|她们|自己|就是|还是|但是|虽然|然而|而且|并且|以及|的话|一样|这种|那种|其中|对于|关于|通过|进行|表示|说明|意思|问题|回答|觉得|知道|认为|能够|可能|一定|根本|完全|十分|比较|方面|时候|地方|东西|事情|以前|现在|以后|当时|然后|于是|因此|由于|不仅|不但|而且|或者|另外|此外|一般|实际上|真正|确实|当然|首先|其次|最后/;
 
+// 颂词里的“不会”是正常否定词，不能单独当作散文标记；
+// 其余现代虚词仍按原规则判断。
+const proseTest = (text) => PROSE_MARKERS.test(String(text).replace(/不会/g, ''));
+
 const CLASSICAL =
   /之|其|此|彼|何|若|则|故|而|乃|以|于|所|为|亦|皆|悉|唯|云|矣|哉|兮|尔|汝|吾|无|不|非|即|谁|孰|莫|未|曾|当|应|须|能|欲|求|见|修|证|生|灭|法|性|空|现|净|执|定|解/;
 
@@ -71,7 +75,7 @@ function isVerseCandidate(line) {
   if (/[0-9A-Za-z]/.test(line)) return false;
   if (!/[，。！？；]$/.test(line)) return false;
   if (!line.includes('，')) return false;
-  if (PROSE_MARKERS.test(line)) return false;
+  if (proseTest(line)) return false;
   const parts = halfParts(line);
   if (parts.length !== 2) return false;
   if (Math.abs(parts[0].length - parts[1].length) > 1) return false;
@@ -88,7 +92,7 @@ function verseScore(lines) {
   if (lines.length >= 2) score += 1;
   if (lines.some((l) => (l.match(new RegExp(CLASSICAL.source, 'g')) || []).length >= 2)) score += 1;
   if (/[的了吗呢吧啊这那很都也还就才又]/.test(lines.join(''))) score -= 1;
-  if (PROSE_MARKERS.test(lines.join(''))) score -= 2;
+  if (proseTest(lines.join(''))) score -= 2;
   return score;
 }
 
@@ -152,6 +156,7 @@ export function parseLectures(raw) {
     if (!started) continue;
 
     if (BOOK_HEADERS.has(line)) continue;
+    if (/^般若[：:]?$/.test(line)) continue; // 书后目录的栏目名，不是正文标题
     if (/^.{1,30}\s+\d{1,4}$/.test(line)) continue; // 目录行
     if (/^(B E A C O N|定 解 宝 灯 论 讲 解|2003年版)/.test(line)) continue;
 
@@ -162,7 +167,7 @@ export function parseLectures(raw) {
     }
 
     if (isVerseCandidate(line)) {
-      records.push({ type: 'verseLine', text: line, chapterId: current.id, page });
+      records.push({ type: 'verseLine', text: line, chapterId: current.id, page, heading: lastHeading });
     } else {
       records.push({ type: 'text', text: line, chapterId: current.id, page, heading: lastHeading });
     }
@@ -191,9 +196,10 @@ export function parseLectures(raw) {
         order: verses.length + 1,
       });
     }
-    // 无论是否识别为颂词，原行都保留在讲解流里，避免句意被切断
+    // 无论是否识别为颂词，原行都保留在讲解流里，避免句意被切断。
+    // 标题取该行解析时的 lastHeading（颂词行自身不带标题），不能用循环结束后的值。
     for (const r of verseBuffer) {
-      textBuffer.push({ ...r, type: 'text', heading: lastHeading });
+      textBuffer.push({ ...r, type: 'text' });
     }
     verseBuffer = [];
   };

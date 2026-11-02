@@ -476,16 +476,29 @@ const aliases = {
 // ---------- lectures (索达吉堪布 2003 讲解) ----------
 let verses = [];
 let commentary = [];
+const translationByPlain = new Map();
+for (const name of ['verse-translations.json', 'verse-translations.manual.json']) {
+  const path = join(DATA, name);
+  if (!existsSync(path)) continue;
+  for (const item of Object.values(JSON.parse(readFileSync(path, 'utf8')))) {
+    if (item && item.plain) translationByPlain.set(item.plain, item);
+  }
+}
 const lecturePath = join(CONTENT, 'lectures/suodaji-2003.txt');
 if (existsSync(lecturePath)) {
   const parsed = parseLectures(readFileSync(lecturePath, 'utf8'));
   const titleMap = Object.fromEntries(parsed.chapters.map((c) => [c.id, c.title]));
-  verses = parsed.verses.map((v) => ({
-    ...v,
-    chapterTitle: titleMap[v.chapterId] || v.chapterId,
-    commentary: v.commentary || [],
-    summary: v.summary || '',
-  }));
+  verses = parsed.verses.map((v) => {
+    const tr = translationByPlain.get(v.plain) || {};
+    return {
+      ...v,
+      chapterTitle: titleMap[v.chapterId] || v.chapterId,
+      commentary: v.commentary || [],
+      summary: v.summary || '',
+      translation: tr.translation || '',
+      terms: tr.terms || [],
+    };
+  });
   commentary = parsed.chunks.map((c) => ({
     ...c,
     chapterTitle: titleMap[c.chapterId] || c.chapterId,
